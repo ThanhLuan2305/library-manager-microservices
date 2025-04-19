@@ -2,9 +2,11 @@ package com.project.libmanage.auth_service.service.impl;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.project.libmanage.auth_service.entity.LoginDetail;
 import com.project.libmanage.auth_service.entity.OtpVerification;
 import com.project.libmanage.auth_service.entity.Role;
 import com.project.libmanage.auth_service.entity.User;
+import com.project.libmanage.auth_service.repository.LoginDetailRepository;
 import com.project.libmanage.auth_service.repository.RoleRepository;
 import com.project.libmanage.auth_service.repository.UserRepository;
 import com.project.libmanage.auth_service.security.JwtTokenProvider;
@@ -25,6 +27,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,6 +41,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of {@link IAccountService} for managing user account operations.
@@ -48,6 +52,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AccountServiceImpl implements IAccountService {
     private final UserRepository userRepository;           // Repository for user data persistence
+    private final LoginDetailRepository loginDetailRepository; // Repository for login session details
     private final UserMapper userMapper;                   // Maps between User entity and DTOs
     private final IMailService mailService;                // Service for sending emails
     private final PasswordEncoder passwordEncoder;         // Encodes user passwords
@@ -471,7 +476,6 @@ public class AccountServiceImpl implements IAccountService {
     public List<String> getRolesUser(String token, HttpServletResponse response) {
         // Verify token; ensures validity and integrity
         SignedJWT signedJWT = jwtTokenProvider.verifyToken(token);
-
         try {
             // Extract claims; contains user metadata
             JWTClaimsSet claimsSet = signedJWT.getJWTClaimsSet();
@@ -484,5 +488,86 @@ public class AccountServiceImpl implements IAccountService {
             log.error("Error parsing token claims", e);
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
+    }
+
+    @Override
+    public void updateAccount(String email, UserUpdateRequest userUpdateRequest) {
+        // Fetch user by email; ensures user exists
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        // Update user fields; assumes non-null values
+        userMapper.updateUser(user, userUpdateRequest);
+        Set<Role> roles = new HashSet<>(userUpdateRequest.getListRole().stream()
+                .map(x -> roleRepository.findByName(x) // Fetch each role by name
+                        .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_EXISTED)))
+                .collect(Collectors.toSet()));
+        try{
+            String oldPassword = user.getPassword();
+            // Update user fields from request DTO
+
+            // Check if new password is provided and not blank
+            if (userUpdateRequest.getPassword() != null && !userUpdateRequest.getPassword().isBlank()) {
+                // Encrypt and set new password if provided
+                user.setPassword(passwordEncoder.encode(userUpdateRequest.getPassword()));
+            } else {
+                // Retain old password if no new one provided
+                user.setPassword(oldPassword);
+            }
+            user.setRoles(roles);
+            // Save updated user; ensures persistence
+            userRepository.save(user);
+        } catch (Exception e) {
+            log.error("Error updating user: {}", e.getMessage(), e);
+            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
+        }
+    }
+
+    @Override
+    public void createAccount(UserCreateRequest userCreateRequest) {
+        User user = userMapper.toUser(userCreateRequest);
+        Set<Role> roles = new HashSet<>();
+        user.setPassword(passwordEncoder.encode(userCreateRequest.getPassword()));
+        if (userRepository.existsByEmail(userCreateRequest.getEmail())) {
+            // Throw exception if email is already taken
+            throw new AppException(ErrorCode.USER_EXISTED);
+        }
+        // Populate roles set with Role entities based on role names from request
+        roles.addAll(userCreateRequest.getListRole().stream()
+                .map(x -> roleRepository.findByName(x) // Fetch each role by name
+                        .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_EXISTED))) // Throw if role not found
+                .collect(Collectors.toSet()));
+        try {
+            // Assign roles to the new user
+            user.setRoles(roles);
+            // Save the new user to the database
+            userRepository.save(user);
+            // Convert saved user to response DTO
+            UserResponse userResponse = userMapper.toUserResponse(user);
+        } catch (DataIntegrityViolationException exception) {
+            // Handle database-specific errors (e.g., constraint violations)
+            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
+        }
+    }
+
+    @Override
+    public void deleteAccount(String email) {
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        // Check if user has ADMIN role
+        if (user.getRoles().stream().anyMatch(role -> role.getName().equals("ADMIN"))) {
+            throw new AppException(ErrorCode.CANNOT_DELETE_ADMIN);
+        }
+
+        user.setDeleted(true);
+
+        List<LoginDetail> userLoginDetails = loginDetailRepository.findByUserId(user.getId());
+        // Iterate through login details and disable each one
+        for (LoginDetail loginDetail : userLoginDetails) {
+            // Disable login detail by its JTI (JWT identifier)
+            loginDetailService.disableLoginDetailById(loginDetail.getJti());
+        }
+
+        // Save the updated (deleted) user
+        userRepository.save(user);
     }
 }

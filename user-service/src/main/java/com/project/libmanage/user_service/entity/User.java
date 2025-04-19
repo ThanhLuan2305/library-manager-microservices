@@ -1,18 +1,12 @@
 package com.project.libmanage.user_service.entity;
 
-import com.project.libmanage.user_service.constant.VerificationStatus;
+import com.project.libmanage.library_common.entity.AuditTable;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.Id;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Column;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.ManyToMany;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.JoinColumn;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Builder;
@@ -21,7 +15,6 @@ import lombok.NoArgsConstructor;
 
 
 import java.time.Instant;
-import java.util.Set;
 
 @Entity
 @Table(name = "users")
@@ -44,22 +37,11 @@ public class User extends AuditTable {
     @Column(nullable = false, length = 255)
     private String password;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private VerificationStatus verificationStatus;
-
     @Column(nullable = false, length = 100)
     private String fullName;
 
     @Column(nullable = true)
     private Instant birthDate;
-
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
-    @EqualsAndHashCode.Exclude
-    private Set<Role> roles;
-
-    private long borrowingsId;
 
     @Column(nullable = false)
     private boolean deleted;

@@ -6,12 +6,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface LoginDetailRepository extends JpaRepository<LoginDetail, Long> {
     Optional<LoginDetail> findByJti(String jti);
 
-    Optional<LoginDetail> findByUserId(Long userId);
+    List<LoginDetail> findByUserId(Long userId);
 
     @Query("SELECT l FROM LoginDetail l WHERE l.jti = :jti AND l.enabled = true")
     Optional<LoginDetail> findByJtiAndEnabled(@Param("jti") String jti);

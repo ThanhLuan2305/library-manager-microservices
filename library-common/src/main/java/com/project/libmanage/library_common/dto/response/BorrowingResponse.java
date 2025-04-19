@@ -18,7 +18,7 @@ public class BorrowingResponse {
     private Long id;
 
     @Schema(description = "User who borrowed the book")
-    private UserResponse user;
+    private Long userId;
 
     @Schema(description = "Book being borrowed")
     private BookResponse book;

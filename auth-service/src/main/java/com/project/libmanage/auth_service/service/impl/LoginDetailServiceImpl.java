@@ -8,6 +8,7 @@ import com.project.libmanage.auth_service.service.ILoginDetailService;
 import com.project.libmanage.auth_service.service.mapper.LoginDetailMapper;
 import com.project.libmanage.library_common.constant.ErrorCode;
 import com.project.libmanage.library_common.dto.request.LoginDetailRequest;
+import com.project.libmanage.library_common.dto.response.LoginDetailResponse;
 import com.project.libmanage.library_common.exception.AppException;
 import jakarta.transaction.Transactional;
 import lombok.AllArgsConstructor;
@@ -117,5 +118,12 @@ public class LoginDetailServiceImpl implements ILoginDetailService {
             log.error("Error when deleting login detail: {}", e.getMessage());
             throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
         }
+    }
+
+    @Override
+    public LoginDetailResponse getLoginDetailByJti(String jti) {
+        return loginDetailRepository.findByJti(jti)
+                .map(loginDetailMapper::toLoginDetailResponse)
+                .orElseThrow(() -> new AppException(ErrorCode.LOGINDETAIL_NOTFOUND));
     }
 }

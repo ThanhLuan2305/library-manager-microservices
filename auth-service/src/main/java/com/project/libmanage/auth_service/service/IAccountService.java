@@ -16,4 +16,7 @@ public interface IAccountService {
     void verifyChangePhone(VerifyChangePhoneRequest request);
     void changePhone(ChangePhoneRequest request);
     List<String> getRolesUser(String token, HttpServletResponse response);
+    void updateAccount(String email, UserUpdateRequest userUpdateRequest);
+    void createAccount(UserCreateRequest userCreateRequest);
+    void deleteAccount(String email);
 }

@@ -222,13 +222,6 @@
                 <artifactId>jhipster-framework</artifactId>
                 <version>${jhipster-framework.version}</version>
             </dependency>
-
-            <dependency>
-                <groupId>org.hibernate.orm</groupId>
-                <artifactId>hibernate-jpamodelgen</artifactId>
-                <version>${hibernate-jpamodelgen.version}</version>
-                <scope>provided</scope>
-            </dependency>
             <!-- Jackson -->
             <dependency>
                 <groupId>com.fasterxml.jackson.datatype</groupId>

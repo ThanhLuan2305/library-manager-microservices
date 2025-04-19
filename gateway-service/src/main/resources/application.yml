@@ -12,10 +12,16 @@ spring:
         locator:
           enabled: true
       routes:
+        - id: USER-SERVICE
+          uri: lb://user-service
+          predicates:
+            - Path=/admin/users/**, /user/users/**
+          filters:
+            - PreserveHostHeader
         - id: AUTH-SERVICE
           uri: lb://auth-service
           predicates:
-            - Path=/auth/**, /password/**, /account/**
+            - Path=/auth/**, /password/**, /account/**, /admin/**
 
 eureka:
   client:
@@ -26,3 +32,8 @@ eureka:
     ip-address: 127.0.0.1
     hostname: localhost
     instance-id: gateway-service:8080
+
+  logging:
+    level:
+      org.springframework.cloud.gateway: DEBUG
+
