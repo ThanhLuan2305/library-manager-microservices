@@ -7,7 +7,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 
 @EnableDiscoveryClient
-@EnableFeignClients
+@EnableFeignClients(basePackages = "com.project.libmanage.library_common.client")
 @SpringBootApplication(scanBasePackages = {
 		"com.project.libmanage.auth_service",
 		"com.project.libmanage.library_common"

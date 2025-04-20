@@ -1,7 +1,6 @@
 package com.project.libmanage.user_service.service;
 
-import com.project.libmanage.library_common.dto.request.UserCreateRequest;
-import com.project.libmanage.library_common.dto.request.UserUpdateRequest;
+import com.project.libmanage.library_common.dto.request.*;
 import com.project.libmanage.library_common.dto.response.UserResponse;
 import com.project.libmanage.user_service.criteria.UserCriteria;
 import com.project.libmanage.user_service.entity.User;
@@ -29,4 +28,12 @@ public interface IUserService {
     Page<UserResponse> searchUser(UserCriteria criteria, Pageable pageable);
 
     User findByEmail(String email);
+
+    boolean isBannedFromBorrowing(String email);
+
+    void updateLateReturn(String email);
+    void updateEmail(ChangeMailRequest changeMailRequest);
+    void updatePassword(ChangePasswordRequest changePasswordRequest);
+    void updatePhone(ChangePhoneRequest changePhoneRequest);
+    void createUserInternal(UserCreateRequest userCreateRequest);
 }

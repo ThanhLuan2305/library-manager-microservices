@@ -10,7 +10,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 		"com.project.libmanage.library_common"
 })
 @EnableDiscoveryClient
-@EnableFeignClients
+@EnableFeignClients(basePackages = "com.project.libmanage.library_common.client")
 public class UserServiceApplication {
 
 	public static void main(String[] args) {

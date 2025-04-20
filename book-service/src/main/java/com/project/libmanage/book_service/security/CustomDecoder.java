@@ -3,7 +3,7 @@ package com.project.libmanage.book_service.security;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-import com.project.libmanage.book_service.entity.client.AuthFeignClient;
+import com.project.libmanage.library_common.client.AuthFeignClient;
 import com.project.libmanage.library_common.constant.TokenType;
 import com.project.libmanage.library_common.dto.response.LoginDetailResponse;
 import com.project.libmanage.library_common.exception.AppException;

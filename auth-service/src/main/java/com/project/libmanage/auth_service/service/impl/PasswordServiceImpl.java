@@ -7,10 +7,14 @@ import com.project.libmanage.auth_service.repository.UserRepository;
 import com.project.libmanage.auth_service.security.JwtTokenProvider;
 import com.project.libmanage.auth_service.service.IMailService;
 import com.project.libmanage.auth_service.service.IPasswordService;
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
+import com.project.libmanage.library_common.client.UserFeignClient;
 import com.project.libmanage.library_common.constant.ErrorCode;
 import com.project.libmanage.library_common.constant.TokenType;
+import com.project.libmanage.library_common.constant.UserAction;
 import com.project.libmanage.library_common.constant.VerificationStatus;
 import com.project.libmanage.library_common.dto.request.ChangePasswordRequest;
+import com.project.libmanage.library_common.dto.request.LogActionRequest;
 import com.project.libmanage.library_common.dto.request.ResetPasswordRequest;
 import com.project.libmanage.library_common.exception.AppException;
 import com.project.libmanage.library_common.util.CommonUtil;
@@ -36,7 +40,8 @@ public class PasswordServiceImpl implements IPasswordService {
     private final CommonUtil commonUtil;                // Provides utility functions like JTI generation
     private final PasswordEncoder passwordEncoder;      // Encrypts passwords using configured algorithm
     private final JwtTokenProvider jwtTokenProvider;    // Manages JWT token generation and verification
-    //private final IActivityLogService activityLogService; // Logs user actions for audit trail
+    private final UserFeignClient userFeignClient;
+    private final ActivityLogFeignClient activityLogFeignClient; // Logs user actions for audit trail
 
     /**
      * Changes the user's password after verifying the old password.
@@ -79,15 +84,17 @@ public class PasswordServiceImpl implements IPasswordService {
         user.setPassword(passwordEncoder.encode(cpRequest.getNewPassword()));
         // Persist updated user; assumes no concurrent modifications
         userRepository.save(user);
+        userFeignClient.updatePassword(cpRequest);
         // Log action for audit; no old/new state needed as password is sensitive
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.PASSWORD_CHANGED,
-//                "User changed new password successfully with email: " + user.getEmail(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.PASSWORD_CHANGED)
+                .details( "User changed new password successfully with email: " + user.getEmail())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
         // Return success; boolean indicates operation completed without errors
         return true;
     }
@@ -115,14 +122,15 @@ public class PasswordServiceImpl implements IPasswordService {
         String token = jwtTokenProvider.generateToken(user, TokenType.RESET_PASSWORD, jti);
 
         // Log request for audit; no state change yet
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.PASSWORD_RESET_REQUEST,
-//                "User request reset passowrd with email: " + user.getEmail(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.PASSWORD_RESET_REQUEST)
+                .details("User request reset passowrd with email: " + user.getEmail())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
         // Send reset email with token; assumes mail service handles delivery
         mailService.sendEmailResetPassword(user.getFullName(), email, token);
     }
@@ -168,15 +176,16 @@ public class PasswordServiceImpl implements IPasswordService {
         user.setPassword(passwordEncoder.encode(resetPasswordRequest.getNewPassword()));
         // Persist updated user; assumes no concurrent updates
         userRepository.save(user);
-
+        userFeignClient.updatePassword(ChangePasswordRequest.builder().build());
         // Log successful reset; no state change tracked
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.PASSWORD_RESET_SUCCESS,
-//                "User reset passowrd success with email: " + user.getEmail(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.PASSWORD_RESET_SUCCESS)
+                .details("User reset passowrd success with email: " + user.getEmail())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
     }
 }

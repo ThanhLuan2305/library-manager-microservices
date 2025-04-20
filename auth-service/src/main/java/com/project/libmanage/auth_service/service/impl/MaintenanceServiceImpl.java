@@ -5,7 +5,10 @@ import com.project.libmanage.auth_service.entity.User;
 import com.project.libmanage.auth_service.repository.UserRepository;
 import com.project.libmanage.auth_service.service.IMaintenanceService;
 import com.project.libmanage.auth_service.ultil.AsyncMailSender;
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
 import com.project.libmanage.library_common.constant.ErrorCode;
+import com.project.libmanage.library_common.constant.UserAction;
+import com.project.libmanage.library_common.dto.request.LogActionRequest;
 import com.project.libmanage.library_common.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +29,7 @@ import java.util.List;
 public class MaintenanceServiceImpl implements IMaintenanceService {
     private final UserRepository userRepository;        // Handles user data retrieval
     private final AsyncMailSender asyncMailSender;      // Sends maintenance emails asynchronously
-    //private final IActivityLogService activityLogService; // Logs admin actions for audit trail
+    private final ActivityLogFeignClient activityLogFeignClient; // Logs admin actions for audit trail
     @Value("${app.maintenance-mode:false}")
     private boolean maintenanceMode;
 
@@ -68,14 +71,15 @@ public class MaintenanceServiceImpl implements IMaintenanceService {
         // Fetch authenticated admin; ensures only authorized users can toggle mode
         User user = getAuthenticatedUser();
         // Log action for audit; no state change tracked as it's a system-level action
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.SYSTEM_MAINTENANCE_MODE,
-//                "Admin set maintenance mode is: " + maintenanceMode,
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.SYSTEM_MAINTENANCE_MODE)
+                .details("Admin set maintenance mode is: " + maintenanceMode)
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
         // Send emails asynchronously; assumes AsyncMailSender handles failures gracefully
         asyncMailSender.sendMaintenanceEmails(emails, maintenanceMode);
     }

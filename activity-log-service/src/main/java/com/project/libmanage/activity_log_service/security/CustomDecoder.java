@@ -1,4 +1,4 @@
-package com.project.libmanage.user_service.security;
+package com.project.libmanage.activity_log_service.security;
 
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;

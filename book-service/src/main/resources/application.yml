@@ -13,6 +13,24 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+  main:
+    allow-bean-definition-over: true
+jwt:
+  signing.key: yGIVSMe9sP0iJDJMpSIph503ZM1uhQlfiPVjp/Hi1Yyv6Nd0kbwQ6omdwcAgA7xt
+  valid-duration: 3600
+  refresh-duration: 2592000
+  reset-duration: 30
+security:
+  public-endpoints-post: /auth/**,/account/**,/password/**,/swagger-ui/**,/v3/api-docs/**,/v3/api-docs,/swagger-resources/**,/webjars/**,/v3/api-docs.yaml,/assets/**,/favicon.ico,/books/search
+  public-endpoints-get: /auth/verify-email,/swagger-ui/**,/v3/api-docs/**,/v3/api-docs,/swagger-resources/**,/webjars/**,/v3/api-docs.yaml,/assets/**,/favicon.ico,/books/all,/books/detail,/chat/**
+  permissions:
+    admin_role: /admin/**
+    user_role: /user/**
+cloudinary:
+  url: cloudinary://889665562338234:0Rwrk8DO16E62EIs7Bz_c6u0fNg@ddvgzy4xh
+  folder: books
+  max_file_size: 5242880
+  allowed_extensions: jpg,jpeg,png,gif
 
 eureka:
   client:
@@ -22,4 +40,4 @@ eureka:
     prefer-ip-address: true
     ip-address: 127.0.0.1
     hostname: localhost
-    instance-id: book-service:8083
+    instance-id: book-service:8082

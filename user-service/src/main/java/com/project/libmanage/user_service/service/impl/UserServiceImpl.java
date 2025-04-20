@@ -1,14 +1,15 @@
 package com.project.libmanage.user_service.service.impl;
 
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
+import com.project.libmanage.library_common.client.AuthFeignClient;
 import com.project.libmanage.library_common.constant.ErrorCode;
-import com.project.libmanage.library_common.dto.request.UserCreateRequest;
-import com.project.libmanage.library_common.dto.request.UserUpdateRequest;
+import com.project.libmanage.library_common.constant.UserAction;
+import com.project.libmanage.library_common.dto.request.*;
 import com.project.libmanage.library_common.dto.response.UserResponse;
 import com.project.libmanage.library_common.exception.AppException;
 import com.project.libmanage.user_service.criteria.UserCriteria;
 import com.project.libmanage.user_service.entity.User;
 import com.project.libmanage.user_service.repository.UserRepository;
-import com.project.libmanage.user_service.repository.client.AuthFeignClient;
 import com.project.libmanage.user_service.service.IUserService;
 import com.project.libmanage.user_service.service.mapper.UserMapper;
 import com.project.libmanage.user_service.specification.UserQueryService;
@@ -19,6 +20,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,7 +39,7 @@ public class UserServiceImpl implements IUserService {
     private final UserMapper userMapper;                      // Mapper for entity-DTO conversion
     private final PasswordEncoder passwordEncoder;            // Utility for password encryption
     private final UserQueryService userQueryService;          // Service for complex user queries
-    ///private final IActivityLogService activityLogService;     // Service for logging actions
+    private final ActivityLogFeignClient activityLogFeignClient;     // Service for logging actions
     private final AuthFeignClient authFeignClient;
 
     private static final String ROLE_ADMIN = "ADMIN";
@@ -92,14 +94,15 @@ public class UserServiceImpl implements IUserService {
             // Convert saved user to response DTO
             UserResponse userResponse = userMapper.toUserResponse(user);
             // Log the creation action by admin
-//            activityLogService.logAction(
-//                    userAction.getId(),
-//                    userAction.getEmail(),
-//                    UserAction.ADMIN_CREATE_USER,
-//                    "Admin create new user with email: " + user.getEmail(),
-//                    null,
-//                    userResponse
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(userAction.getId())
+                    .email(userAction.getEmail())
+                    .action(UserAction.ADMIN_CREATE_USER)
+                    .details("Admin create new user with email: " + user.getEmail())
+                    .beforeChange(null)
+                    .afterChange(userResponse)
+                    .build()
+            );
 
             // Return the response to the caller
             return userResponse;
@@ -284,10 +287,6 @@ public class UserServiceImpl implements IUserService {
         User u = userRepository.findById(id).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
         // Store current user state as response DTO to save activity log
         UserResponse oldeUserResponse = userMapper.toUserResponse(u);
-//        // Check if user has ADMIN role
-//        if (u.getRoles().stream().anyMatch(role -> role.getName().equals(ROLE_ADMIN))) {
-//            throw new AppException(ErrorCode.CANNOT_UPDATE_ADMIN);
-//        }
         // Check role admin, deny update user with change role admin
         for (String r : request.getListRole()) {
             if (r.equals(ROLE_ADMIN)) {
@@ -317,14 +316,15 @@ public class UserServiceImpl implements IUserService {
             // Convert updated user to response DTO
             UserResponse userResponse = userMapper.toUserResponse(newUser);
             // Log the update action by admin
-//            activityLogService.logAction(
-//                    userAction.getId(),
-//                    userAction.getEmail(),
-//                    UserAction.ADMIN_UPDATE_USER,
-//                    "Admin update user with email: " + u.getEmail(),
-//                    oldeUserResponse,
-//                    userResponse
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(userAction.getId())
+                    .email(userAction.getEmail())
+                    .action(UserAction.ADMIN_UPDATE_USER)
+                    .details("Admin update user with email: " + u.getEmail())
+                    .beforeChange(oldeUserResponse)
+                    .afterChange(userResponse)
+                    .build()
+            );
             // Return updated response
             return userResponse;
         } catch (AppException e) {
@@ -363,14 +363,15 @@ public class UserServiceImpl implements IUserService {
             // Save the updated (deleted) user
             userRepository.save(user);
             // Log the deletion action by admin
-//            activityLogService.logAction(
-//                    userAction.getId(),
-//                    userAction.getEmail(),
-//                    UserAction.ADMIN_DELETE_USER,
-//                    "Admin create new user with email: " + user.getEmail(),
-//                    userMapper.toUserResponse(userAction),
-//                    null
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(userAction.getId())
+                    .email(userAction.getEmail())
+                    .action(UserAction.ADMIN_DELETE_USER)
+                    .details("Admin deleted user with email: " + user.getEmail())
+                    .beforeChange(userMapper.toUserResponse(userAction))
+                    .afterChange(null)
+                    .build()
+            );
         } catch (Exception e) {
             // Log and wrap unexpected exceptions in custom exception
             log.error("Error deleting user: {}", e.getMessage(), e);
@@ -411,4 +412,108 @@ public class UserServiceImpl implements IUserService {
         // Fetch user by email from repository
         return userRepository.findByEmail(email).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
     }
+
+    @Override
+    public boolean isBannedFromBorrowing(String email) {
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        return user.isBannedFromBorrowing();
+    }
+
+    @Override
+    public void updateLateReturn(String email) {
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        user.setLateReturnCount(user.getLateReturnCount() + 1);
+        userRepository.save(user);
+    }
+
+    @Override
+    public void updateEmail(ChangeMailRequest changeMailRequest) {
+        // Check authentication; ensures user is logged in
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        // Validate old email; ensures request matches authenticated user
+        String currentEmail = authentication.getName();
+        if (!currentEmail.equals(changeMailRequest.getOldEmail())) {
+            throw new AppException(ErrorCode.USER_NOT_EXISTED);
+        }
+
+        // Check new email availability; prevents duplicates
+        if (userRepository.existsByEmail(changeMailRequest.getNewEmail())) {
+            throw new AppException(ErrorCode.MAIL_EXISTED);
+        }
+
+        // Fetch user; fails if not found
+        User user = userRepository.findByEmail(currentEmail)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        user.setEmail(changeMailRequest.getNewEmail());
+        userRepository.save(user); // Persist changes
+        SecurityContextHolder.clearContext();
+    }
+
+    @Override
+    public void updatePassword(ChangePasswordRequest changePasswordRequest) {
+        // Fetch security context; assumes JWT-based authentication is configured
+        SecurityContext jwtContex = SecurityContextHolder.getContext();
+        // Extract email from authenticated principal; assumes email is the subject
+        String email = jwtContex.getAuthentication().getName();
+
+        // Retrieve user by email; fails fast if user doesn't exist
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        // Verify old password matches stored hash; uses PasswordEncoder for security
+        boolean rs = passwordEncoder.matches(changePasswordRequest.getOldPassword(), user.getPassword());
+        // Fail if old password doesn't match; reuses UNAUTHENTICATED for simplicity
+        if (!rs) {
+            throw new AppException(ErrorCode.PASSWORD_NOT_MATCH); // Indicates authentication failure
+        }
+
+        // Check if new password is different from old; prevents redundant updates
+        if (passwordEncoder.matches(changePasswordRequest.getNewPassword(), user.getPassword())) {
+            throw new AppException(ErrorCode.PASSWORD_DUPLICATED); // Enforces password change policy
+        }
+
+        // Encrypt new password and update user entity; assumes encoder is consistent
+        user.setPassword(passwordEncoder.encode(changePasswordRequest.getNewPassword()));
+        // Persist updated user; assumes no concurrent modifications
+        userRepository.save(user);
+    }
+
+    @Override
+    public void updatePhone(ChangePhoneRequest changePhoneRequest) {
+        User user = getAuthenticatedUser();
+
+        // Validate old phone; ensures request matches current phone
+        if (!user.getPhoneNumber().equals(changePhoneRequest.getOldPhoneNumber())) {
+            throw new AppException(ErrorCode.OLD_PHONE_INVALID);
+        }
+
+        // Update phone number; applies new value
+        user.setPhoneNumber(changePhoneRequest.getNewPhoneNumber());
+        userRepository.save(user); // Persist changes
+    }
+
+    @Override
+    public void createUserInternal(UserCreateRequest userCreateRequest) {
+        User user = userMapper.toUser(userCreateRequest);
+
+        // Encrypt the raw password from request and set it to the user entity
+        user.setPassword(passwordEncoder.encode(userCreateRequest.getPassword()));
+
+        // Check if the email already exists in the database
+        if (userRepository.existsByEmail(userCreateRequest.getEmail())) {
+            // Throw exception if email is already taken
+            throw new AppException(ErrorCode.USER_EXISTED);
+        }
+        try {
+            // Save the new user to the database
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException exception) {
+            // Handle database-specific errors (e.g., constraint violations)
+            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
+        }
+    }
+
 }

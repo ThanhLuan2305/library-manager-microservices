@@ -15,10 +15,9 @@ import com.project.libmanage.auth_service.service.ILoginDetailService;
 import com.project.libmanage.auth_service.service.IMailService;
 import com.project.libmanage.auth_service.service.IOtpVerificationService;
 import com.project.libmanage.auth_service.service.mapper.UserMapper;
-import com.project.libmanage.library_common.constant.ErrorCode;
-import com.project.libmanage.library_common.constant.OtpType;
-import com.project.libmanage.library_common.constant.PredefinedRole;
-import com.project.libmanage.library_common.constant.VerificationStatus;
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
+import com.project.libmanage.library_common.client.UserFeignClient;
+import com.project.libmanage.library_common.constant.*;
 import com.project.libmanage.library_common.dto.request.*;
 import com.project.libmanage.library_common.dto.response.UserResponse;
 import com.project.libmanage.library_common.exception.AppException;
@@ -37,10 +36,7 @@ import org.springframework.stereotype.Service;
 import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -58,10 +54,11 @@ public class AccountServiceImpl implements IAccountService {
     private final PasswordEncoder passwordEncoder;         // Encodes user passwords
     private final RoleRepository roleRepository;           // Repository for role lookups
     private final IOtpVerificationService otpVerificationService; // Manages OTP creation and verification
-    //private final IActivityLogService activityLogService;  // Logs user actions for auditing
+    private final ActivityLogFeignClient activityLogFeignClient;  // Logs user actions for auditing
     private final ILoginDetailService loginDetailService;  // Manages login session details
     private final JwtTokenProvider jwtTokenProvider;       // Handles JWT token generation and verification
     private final CommonUtil commonUtil;                   // Utility for common functions (e.g., OTP generation)
+    private final UserFeignClient userFeignClient;
 
     /**
      * Registers a new user with provided details, assigns default role, and initiates verification.
@@ -105,8 +102,20 @@ public class AccountServiceImpl implements IAccountService {
             user.setRoles(roles);
             user.setVerificationStatus(VerificationStatus.UNVERIFIED);
             user.setDeleted(false);
-
+            List<String> lstRoles = new ArrayList<>();
+            lstRoles.add(role.getName());
+            UserCreateRequest userCreateRequest = UserCreateRequest.builder()
+                    .email(user.getEmail())
+                    .birthDate(registerRequest.getBirthDate())
+                    .fullName(user.getFullName())
+                    .verificationStatus(user.getVerificationStatus())
+                    .password(registerRequest.getPassword())
+                    .phoneNumber(user.getPhoneNumber())
+                    .listRole(lstRoles)
+                    .deleted(user.isDeleted())
+                    .build();
             log.info("Test profile: {}, {},",user.getEmail(), user.getPhoneNumber());
+            userFeignClient.createUserInternal(userCreateRequest);
             user = userRepository.save(user); // Persist user
 
             // Generate and store email OTP; 5-minute expiration
@@ -137,14 +146,15 @@ public class AccountServiceImpl implements IAccountService {
             // Map to response DTO; includes user details
             UserResponse userResponse = userMapper.toUserResponse(user);
             // Log registration action; captures new user state
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.REGISTER,
-//                    "User registered success with email: " + user.getEmail(),
-//                    null,
-//                    userResponse
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.REGISTER)
+                    .details("User registered success with email: " + user.getEmail())
+                    .beforeChange(null)
+                    .afterChange(userResponse)
+                    .build()
+            );
             return userResponse;
         } catch (Exception e) {
             // Log error for debugging; generic exception catch
@@ -177,14 +187,15 @@ public class AccountServiceImpl implements IAccountService {
         }
         userRepository.save(user); // Persist updated status
         // Log verification action
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.EMAIL_VERIFICATION,
-//                "User verify email success with email: " + user.getEmail(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.EMAIL_VERIFICATION)
+                .details("User verify email success with email: " + user.getEmail())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
         return rs;
     }
 
@@ -212,14 +223,15 @@ public class AccountServiceImpl implements IAccountService {
         }
         userRepository.save(user); // Persist updated status
         // Log verification action
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.PHONE_VERIFICATION,
-//                "User verify phone success with phone: " + user.getPhoneNumber(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.PHONE_VERIFICATION)
+                .details("User verify phone success with phone: " + user.getPhoneNumber())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
         return rs;
     }
 
@@ -265,16 +277,21 @@ public class AccountServiceImpl implements IAccountService {
             // Clear login details; forces re-authentication with new email
             loginDetailService.deleteLoginDetailByUser(user.getId());
             userRepository.save(user); // Persist changes
+            userFeignClient.updateEmail(ChangeMailRequest.builder()
+                    .newEmail(changeMailRequest.getNewEmail())
+                    .oldEmail(changeMailRequest.getOldEmail())
+                    .build());
 
             // Log email change action
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.EMAIL_VERIFICATION,
-//                    "User verify change email success with email: " + changeMailRequest.getNewEmail(),
-//                    null,
-//                    null
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.EMAIL_VERIFICATION)
+                    .details("User verify change email success with email: " + changeMailRequest.getNewEmail())
+                    .beforeChange(null)
+                    .afterChange(null)
+                    .build()
+            );
             // Clear security context; logs user out due to email change
             SecurityContextHolder.clearContext();
         } catch (Exception e) {
@@ -330,15 +347,16 @@ public class AccountServiceImpl implements IAccountService {
                 .build();
         otpVerificationService.createOtp(otpVerificationPhone, false); // Email-based OTP
 
-//        // Log change request; captures old and new email
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.CHANGED_EMAIL,
-//                "User require change email success with email: " + cMailRequest.getNewEmail(),
-//                cMailRequest.getOldEmail(),
-//                cMailRequest.getNewEmail()
-//        );
+        // Log change request; captures old and new email
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.CHANGED_EMAIL)
+                .details("User require change email success with email: " + cMailRequest.getNewEmail())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
 
         // Send OTP to new email; assumes async delivery
         mailService.sendEmailOTP(otp, cMailRequest.getNewEmail(), false, user.getFullName());
@@ -378,16 +396,21 @@ public class AccountServiceImpl implements IAccountService {
         // Update phone number; applies new value
         user.setPhoneNumber(request.getNewPhoneNumber());
         userRepository.save(user); // Persist changes
+        userFeignClient.updatePhone(ChangePhoneRequest.builder()
+                .newPhoneNumber(request.getNewPhoneNumber())
+                .oldPhoneNumber(request.getOldPhoneNumber())
+                .build());
 
         // Log phone change action
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.PHONE_VERIFICATION,
-//                "User verify change phone success with phone: " + request.getNewPhoneNumber(),
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.PHONE_VERIFICATION)
+                .details("User verify change phone success with phone: " + request.getNewPhoneNumber())
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
     }
 
     /**
@@ -427,14 +450,15 @@ public class AccountServiceImpl implements IAccountService {
         otpVerificationService.createOtp(otpVerificationPhone, true); // Phone-based OTP
 
         // Log change request; captures old and new phone
-//        activityLogService.logAction(
-//                user.getId(),
-//                user.getEmail(),
-//                UserAction.CHANGED_PHONE,
-//                "User require change phone success with phone: " + request.getNewPhoneNumber(),
-//                request.getOldPhoneNumber(),
-//                request.getNewPhoneNumber()
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .action(UserAction.CHANGED_PHONE)
+                .details("User require change phone success with phone: " + request.getNewPhoneNumber())
+                .beforeChange(request.getOldPhoneNumber())
+                .afterChange(request.getNewPhoneNumber())
+                .build()
+        );
     }
 
     /**
@@ -541,8 +565,6 @@ public class AccountServiceImpl implements IAccountService {
             user.setRoles(roles);
             // Save the new user to the database
             userRepository.save(user);
-            // Convert saved user to response DTO
-            UserResponse userResponse = userMapper.toUserResponse(user);
         } catch (DataIntegrityViolationException exception) {
             // Handle database-specific errors (e.g., constraint violations)
             throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);

@@ -18,10 +18,20 @@ spring:
             - Path=/admin/users/**, /user/users/**
           filters:
             - PreserveHostHeader
+        - id: BOOK-SERVICE
+          uri: lb://book-service
+          predicates:
+            - Path=/admin/**, /user/**, /books/**
+          filters:
+            - PreserveHostHeader
         - id: AUTH-SERVICE
           uri: lb://auth-service
           predicates:
             - Path=/auth/**, /password/**, /account/**, /admin/**
+        - id: ACTIVITY-LOG-SERVICE
+          uri: lb://activity-log-service
+          predicates:
+            - Path=/admin/**
 
 eureka:
   client:

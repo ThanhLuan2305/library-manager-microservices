@@ -2,8 +2,8 @@ package com.project.libmanage.book_service.service.impl;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
-import com.project.libmanager.exception.AppException;
-import com.project.libmanager.service.IImageCloundService;
+import com.project.libmanage.book_service.service.IImageCloundService;
+import com.project.libmanage.library_common.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

@@ -10,12 +10,17 @@ import com.project.libmanage.auth_service.security.JwtTokenProvider;
 import com.project.libmanage.auth_service.service.IAuthenticationService;
 import com.project.libmanage.auth_service.service.ILoginDetailService;
 import com.project.libmanage.auth_service.service.IMaintenanceService;
+import com.project.libmanage.auth_service.service.mapper.UserMapper;
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
 import com.project.libmanage.library_common.constant.ErrorCode;
 import com.project.libmanage.library_common.constant.PredefinedRole;
 import com.project.libmanage.library_common.constant.TokenType;
+import com.project.libmanage.library_common.constant.UserAction;
 import com.project.libmanage.library_common.dto.request.AuthenticationRequest;
+import com.project.libmanage.library_common.dto.request.LogActionRequest;
 import com.project.libmanage.library_common.dto.request.LoginDetailRequest;
 import com.project.libmanage.library_common.dto.response.AuthenticationResponse;
+import com.project.libmanage.library_common.dto.response.UserResponse;
 import com.project.libmanage.library_common.exception.AppException;
 import com.project.libmanage.library_common.util.CommonUtil;
 import com.project.libmanage.library_common.util.CookieUtil;
@@ -26,6 +31,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
@@ -42,13 +48,14 @@ import java.time.temporal.ChronoUnit;
 @RequiredArgsConstructor
 public class AuthenticationServiceImpl implements IAuthenticationService {
     private final UserRepository userRepository;              // Repository for user data access
+    private final UserMapper userMapper;                      // Mapper for user-related conversions
     private final IMaintenanceService maintenanceService;     // Service to check maintenance mode
     private final RoleRepository roleRepository;              // Repository for role lookups
     private final JwtTokenProvider jwtTokenProvider;          // Utility for JWT token generation and verification
     private final AuthenticationManagerBuilder authenticationManagerBuilder; // Builds authentication manager
     private final ILoginDetailService loginDetailService;     // Service for managing login details
     private final CommonUtil commonUtil;                      // Utility for common functions (e.g., JTI generation)
-    //private final IActivityLogService activityLogService;     // Service for logging user actions
+    private final ActivityLogFeignClient activityLogFeignClient;     // Service for logging user actions
     private final CookieUtil cookieUtil;                      // Utility for cookie management
 
     @Value("${jwt.refresh-duration}")
@@ -112,14 +119,15 @@ public class AuthenticationServiceImpl implements IAuthenticationService {
         cookieUtil.addCookie(response, REFRESH_TOKEN_STR, refreshToken, (int) refreshDuration);
 
         // Log successful login; audit trail for user action
-//        activityLogService.logAction(
-//                userDB.getId(),
-//                userDB.getEmail(),
-//                UserAction.LOGIN,
-//                "User login success!!!",
-//                null,
-//                null
-//        );
+        activityLogFeignClient.logAction(LogActionRequest.builder()
+                .userId(userDB.getId())
+                .email(userDB.getEmail())
+                .action(UserAction.LOGIN)
+                .details("User login success!!!")
+                .beforeChange(null)
+                .afterChange(null)
+                .build()
+        );
 
         // Return tokens in response DTO
         return AuthenticationResponse.builder()
@@ -181,19 +189,40 @@ public class AuthenticationServiceImpl implements IAuthenticationService {
             // Fetch user; assumes subject is email
             User userDB = userRepository.findByEmail(claimsSet.getSubject()).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
             // Log logout action; audit trail for user activity
-//            activityLogService.logAction(
-//                    userDB.getId(),
-//                    userDB.getEmail(),
-//                    UserAction.LOGOUT,
-//                    "User log out success!!!",
-//                    null,
-//                    null
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(userDB.getId())
+                    .email(userDB.getEmail())
+                    .action(UserAction.LOGOUT)
+                    .details("User logout success!!!")
+                    .beforeChange(null)
+                    .afterChange(null)
+                    .build()
+            );
         } catch (Exception e) {
             // Log error with stack trace; aids debugging
             log.error("Error logout token", e);
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
+    }
+
+    @Override
+    public UserResponse getAuthenticatedUser() {
+        SecurityContext jwtContext = SecurityContextHolder.getContext();
+        // Check if context or authentication is invalid or user is not authenticated
+        if (jwtContext == null || jwtContext.getAuthentication() == null ||
+                !jwtContext.getAuthentication().isAuthenticated()) {
+            // Throw exception if authentication is missing or invalid
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Log the authenticated user's email for debugging
+        log.info("Authentication {}", jwtContext.getAuthentication().getName());
+
+        // Extract email from authentication object
+        String email = jwtContext.getAuthentication().getName();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        // Fetch user by email from database
+        return userMapper.toUserResponse(user); // Throw if not found
     }
 
     /**

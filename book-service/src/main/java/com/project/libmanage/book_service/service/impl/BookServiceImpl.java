@@ -12,11 +12,17 @@ import com.project.libmanage.book_service.service.mapper.BookMapper;
 import com.project.libmanage.book_service.service.mapper.BookTypeMapper;
 import com.project.libmanage.book_service.service.mapper.BorrowingMapper;
 import com.project.libmanage.book_service.specification.BookQueryService;
+import com.project.libmanage.library_common.client.ActivityLogFeignClient;
+import com.project.libmanage.library_common.client.AuthFeignClient;
+import com.project.libmanage.library_common.client.UserFeignClient;
 import com.project.libmanage.library_common.constant.ErrorCode;
+import com.project.libmanage.library_common.constant.UserAction;
 import com.project.libmanage.library_common.dto.request.BookCreateRequest;
 import com.project.libmanage.library_common.dto.request.BookUpdateRequest;
+import com.project.libmanage.library_common.dto.request.LogActionRequest;
 import com.project.libmanage.library_common.dto.response.BookResponse;
 import com.project.libmanage.library_common.dto.response.BorrowingResponse;
+import com.project.libmanage.library_common.dto.response.UserResponse;
 import com.project.libmanage.library_common.exception.AppException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +33,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -60,7 +64,9 @@ public class BookServiceImpl implements IBookService {
     private final BorrowingRepository borrowingRepository; // Manages borrowing records
     private final BorrowingMapper borrowingMapper;       // Converts between Borrowing entities and DTOs
     private final BookQueryService bookQueryService;     // Executes complex book queries with criteria
-    //private final IActivityLogService activityLogService; // Logs user and admin actions for auditing
+    private final AuthFeignClient authFeignClient;
+    private final UserFeignClient userFiegnClient;
+    private final ActivityLogFeignClient activityLogFeignClient; // Logs user and admin actions for auditing
 
     /**
      * Creates a new book or updates an existing book if the ISBN already exists.
@@ -107,16 +113,17 @@ public class BookServiceImpl implements IBookService {
             book = bookRepository.save(book); // Persist new book
 
             // Log admin action; captures creation event
-            //User user = getAuthenticatedUser();
+            UserResponse user = authFeignClient.getAuthenticatedUser();
             BookResponse bookResponse = bookMapper.toBookResponse(book);
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.ADD_BOOK,
-//                    "Admin add new book with id: " + book.getId(),
-//                    bookResponse,
-//                    null
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.ADD_BOOK)
+                    .details("Admin add new book with id: " + book.getId())
+                    .beforeChange(bookResponse)
+                    .afterChange(null)
+                    .build()
+            );
             return bookResponse;
         } catch (DataAccessException e) {
             log.error("Database error: {}", e.getMessage(), e);
@@ -168,16 +175,17 @@ public class BookServiceImpl implements IBookService {
             Book newBook = bookRepository.save(oldBook); // Save changes
 
             // Log admin action with before/after states
-//            User user = getAuthenticatedUser();
+            UserResponse user = authFeignClient.getAuthenticatedUser();
             BookResponse newBookResponse = bookMapper.toBookResponse(newBook);
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.UPDATE_BOOK_INFO,
-//                    "Admin update book with id: " + newBook.getId(),
-//                    oldBookResponse,
-//                    newBookResponse
-//            );
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.UPDATE_BOOK_INFO)
+                    .details("Admin update book with id: " + newBook.getId())
+                    .beforeChange(oldBookResponse)
+                    .afterChange(newBookResponse)
+                    .build()
+            );
             return newBookResponse;
         } catch (DataAccessException e) {
             // Log database error
@@ -213,15 +221,16 @@ public class BookServiceImpl implements IBookService {
             bookRepository.save(book);
 
             // Log admin action
-//            User user = getAuthenticatedUser();
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.DELETE_BOOK,
-//                    "Admin deleted book with id: " + book.getId(),
-//                    oleBookResponse,
-//                    null
-//            );
+            UserResponse user = authFeignClient.getAuthenticatedUser();
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.DELETE_BOOK)
+                    .details("Admin deleted book with id: " + book.getId())
+                    .beforeChange(oleBookResponse)
+                    .afterChange(null)
+                    .build()
+            );
         } catch (Exception e) {
             log.error(e.getMessage());
             throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
@@ -240,10 +249,6 @@ public class BookServiceImpl implements IBookService {
     public Page<BookResponse> getBooks(Pageable pageable) {
         // Fetch available books; assumes custom query excludes deleted books
         Page<Book> pageBook = bookRepository.findAllAvailableBooks(pageable);
-        if (pageBook.isEmpty()) {
-            log.error("Book not found in the database");
-            throw new AppException(ErrorCode.BOOK_NOT_EXISTED);
-        }
         return mapBookPageBookResponsePage(pageBook);
     }
 
@@ -333,32 +338,6 @@ public class BookServiceImpl implements IBookService {
         return mapToBookResponseByMapper(id);
     }
 
-//    /**
-//     * Retrieves the authenticated user from the security context.
-//     *
-//     * @return the {@link User} entity of the authenticated user
-//     * @throws AppException if:
-//     *                      - authentication is missing (ErrorCode.UNAUTHORIZED)
-//     *                      - user not found (ErrorCode.USER_NOT_EXISTED)
-//     * @implNote Uses JWT principal (email) to fetch user; assumes email uniqueness.
-//     */
-//    private User getAuthenticatedUser() {
-//        // Access security context; assumes JWT-based authentication
-//        SecurityContext jwtContext = SecurityContextHolder.getContext();
-//        // Validate authentication; fails fast if invalid
-//        if (jwtContext == null || jwtContext.getAuthentication() == null ||
-//                !jwtContext.getAuthentication().isAuthenticated()) {
-//            throw new AppException(ErrorCode.UNAUTHORIZED);
-//        }
-//        // Log principal for debugging; assumes email as subject
-//        log.info("Authentication {}", jwtContext.getAuthentication().getName());
-//
-//        // Fetch user by email; assumes reliable identifier
-//        String email = jwtContext.getAuthentication().getName();
-//        return userRepository.findByEmail(email)
-//                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-//    }
-
     /**
      * Allows an authenticated user to borrow a book.
      *
@@ -378,20 +357,20 @@ public class BookServiceImpl implements IBookService {
     @Override
     public BorrowingResponse borrowBook(Long bookId) {
         // Fetch authenticated user; ensures valid session
-//        User user = getAuthenticatedUser();
-//        // Check user status; restricts deleted users
-//        boolean isDeleted = user.isDeleted();
-//        if (isDeleted) {
-//            throw new AppException(ErrorCode.USER_IS_DELETED);
-//        }
-//        // Check borrowing ban; assumes ban logic elsewhere
-//        if (user.isBannedFromBorrowing()) {
-//            throw new AppException(ErrorCode.USER_BORROWING_RESTRICTED);
-//        }
-//        // Check overdue books; prevents borrowing if overdue
-//        if (borrowingRepository.existsOverdueBorrowingsByUser(user.getId())) {
-//            throw new AppException(ErrorCode.USER_HAS_OVERDUE_BOOKS);
-//        }
+          UserResponse user = authFeignClient.getAuthenticatedUser();
+        // Check user status; restricts deleted users
+        boolean isDeleted = user.isDeleted();
+        if (isDeleted) {
+            throw new AppException(ErrorCode.USER_IS_DELETED);
+        }
+        // Check borrowing ban; assumes ban logic elsewhere
+        if (userFiegnClient.isBannedFromBorrowing(user.getEmail())) {
+            throw new AppException(ErrorCode.USER_BORROWING_RESTRICTED);
+        }
+        // Check overdue books; prevents borrowing if overdue
+        if (borrowingRepository.existsOverdueBorrowingsByUser(user.getId())) {
+            throw new AppException(ErrorCode.USER_HAS_OVERDUE_BOOKS);
+        }
 
         // Fetch book; fails if not found
         Book book = bookRepository.findById(bookId)
@@ -412,7 +391,7 @@ public class BookServiceImpl implements IBookService {
 
             // Build and save borrowing record
             Borrowing borrowing = Borrowing.builder()
-                    .user(user)
+                    .userId(user.getId())
                     .book(book)
                     .borrowDate(borrowDate)
                     .dueDate(dueDate)
@@ -424,13 +403,14 @@ public class BookServiceImpl implements IBookService {
             bookRepository.save(book);
 
             // Log user action
-            activityLogService.logAction(
-                    user.getId(),
-                    user.getEmail(),
-                    UserAction.BOOK_BORROWED,
-                    "User borrowed book with id: " + book.getId(),
-                    null,
-                    null
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.BOOK_BORROWED)
+                    .details("User borrowed book with id: " + book.getId())
+                    .beforeChange(null)
+                    .afterChange(null)
+                    .build()
             );
             return borrowingMapper.toBorrowingResponse(borrowing);
         } catch (Exception e) {
@@ -454,7 +434,7 @@ public class BookServiceImpl implements IBookService {
     @Override
     public BorrowingResponse returnBook(Long bookId) {
         // Fetch authenticated user
-        User user = getAuthenticatedUser();
+        UserResponse user = authFeignClient.getAuthenticatedUser();
 
         // Fetch active borrowing; fails if not found
         Borrowing borrowing = borrowingRepository.findByUserIdAndBookIdAndReturnDateIsNull(user.getId(), bookId)
@@ -466,12 +446,10 @@ public class BookServiceImpl implements IBookService {
 
         // Track late returns; increments counter if overdue
         if (returnDate.isAfter(borrowing.getDueDate())) {
-            user.setLateReturnCount(user.getLateReturnCount() + 1);
+            userFiegnClient.updateLateReturn(user.getEmail());
         }
 
         try {
-            // Save user updates; persists late return count
-            userRepository.save(user);
 
             // Update stock; reflects return
             Book book = borrowing.getBook();
@@ -479,13 +457,14 @@ public class BookServiceImpl implements IBookService {
             bookRepository.save(book);
 
             // Log user action
-            activityLogService.logAction(
-                    user.getId(),
-                    user.getEmail(),
-                    UserAction.BOOK_RETURNED,
-                    "User returned book with id: " + book.getId(),
-                    null,
-                    null
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.BOOK_RETURNED)
+                    .details("User returned book with id: " + book.getId())
+                    .beforeChange(null)
+                    .afterChange(null)
+                    .build()
             );
             return borrowingMapper.toBorrowingResponse(borrowingRepository.save(borrowing));
         } catch (Exception e) {
@@ -527,7 +506,7 @@ public class BookServiceImpl implements IBookService {
     @Override
     public Page<BorrowingResponse> getBookBorrowForUser(Pageable pageable) {
         try {
-            User user = getAuthenticatedUser();
+            UserResponse user = authFeignClient.getAuthenticatedUser();
             Page<Borrowing> borrowingsBook = borrowingRepository.findByUserIdAndReturnDateIsNull(user.getId(), pageable);
             return mapBorrowPageBrorrowResponsePage(borrowingsBook);
         } catch (AppException e) {
@@ -549,7 +528,7 @@ public class BookServiceImpl implements IBookService {
     @Override
     public Page<BorrowingResponse> getBookReturnForUser(Pageable pageable) {
         try {
-            User user = getAuthenticatedUser();
+            UserResponse user = authFeignClient.getAuthenticatedUser();
             Page<Borrowing> bookReturn = borrowingRepository.findByUserIdAndReturnDateIsNotNull(user.getId(), pageable);
             return mapBorrowPageBrorrowResponsePage(bookReturn);
         } catch (AppException e) {
@@ -663,15 +642,16 @@ public class BookServiceImpl implements IBookService {
             bookRepository.saveAll(newBooks);
 
             // Log admin action
-//            User user = getAuthenticatedUser();
-//            activityLogService.logAction(
-//                    user.getId(),
-//                    user.getEmail(),
-//                    UserAction.IMPORT_BOOK_BY_CSV,
-//                    "Admin import book by file csv success!",
-//                    null,
-//                    null
-//            );
+            UserResponse user = authFeignClient.getAuthenticatedUser();
+            activityLogFeignClient.logAction(LogActionRequest.builder()
+                    .userId(user.getId())
+                    .email(user.getEmail())
+                    .action(UserAction.IMPORT_BOOK_BY_CSV)
+                    .details("Admin import book by file csv success!")
+                    .beforeChange(null)
+                    .afterChange(null)
+                    .build()
+            );
         } catch (AppException e) {
             log.error(e.getMessage(), e);
             throw e;
